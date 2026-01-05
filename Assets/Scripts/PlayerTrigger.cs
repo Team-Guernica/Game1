@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
 
-public class PassThroughInteract : MonoBehaviour
+public class PassThroughInteract23 : MonoBehaviour
 {
     [Header("플레이어 태그")]
     public string playerTag = "Player";
