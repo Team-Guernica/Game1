@@ -34,6 +34,7 @@ public class Pickaxe : MonoBehaviour
         StartCoroutine(SwingRoutine());
     }
 
+
     IEnumerator SwingRoutine()
     {
         _swinging = true;
@@ -62,4 +63,5 @@ public class Pickaxe : MonoBehaviour
 
         _swinging = false;
     }
+
 }
