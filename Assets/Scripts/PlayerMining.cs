@@ -34,59 +34,50 @@ public class PlayerMining : BaseBehaviour
 
     private void TryMine()
     {
+        // Mining cooldown
         if (Time.time < lastMineTime + cooldown) return;
         lastMineTime = Time.time;
 
-        if (targetTilemap == null)
-        {
-            Debug.LogError("targetTilemap is null");
-            return;
-        }
-
+        // player position and aim direction
         Vector2 origin = interactOrigin.position;
         Vector2 dir = movement != null ? movement.AimDir : Vector2.down;
         if (dir.sqrMagnitude < 0.001f) dir = Vector2.down;
 
+        // aim direction raycast
         RaycastHit2D hit = Physics2D.Raycast(origin, dir, range, platformLayer);
         if (!hit.collider) return;
 
-        Vector3 fixedWorld = hit.point - (Vector2)dir * 0.05f;
-        Vector3Int cell = targetTilemap.WorldToCell(fixedWorld);
+        Tilemap tm = hit.collider.GetComponent<Tilemap>() ?? hit.collider.GetComponentInParent<Tilemap>();
+        if (tm == null) return;
 
+        // raycast to tilemap cell world point
+        Vector3Int cell = tm.WorldToCell(hit.point);
+        TileBase tile = tm.GetTile(cell);
 
-        TileBase tile = targetTilemap.GetTile(cell);
+        // when hit point is edge , offset correction
 
+        // reverse hit.normal and correct position offset
         if (tile == null)
         {
-            Vector3Int step = new Vector3Int(
-                dir.x > 0.5f ? 1 : (dir.x < -0.5f ? -1 : 0),
-                dir.y > 0.5f ? 1 : (dir.y < -0.5f ? -1 : 0),
-                0
-            );
+            float epsilon = 0.001f; //
+            Vector2 inside = hit.point - hit.normal * epsilon;
 
-            Vector3Int candidate = cell + step;
-            TileBase t2 = targetTilemap.GetTile(candidate);
+            Vector3Int cell2 = tm.WorldToCell(inside);
+            TileBase tile2 = tm.GetTile(cell2);
 
-            if (t2 != null)
+            if (tile2 != null)
             {
-                cell = candidate;
-                tile = t2;
+                cell = cell2;
+                tile = tile2;
             }
         }
 
-        Debug.Log($"Mine final cell={cell}, tile={(tile ? tile.name : "null")}");
+        Debug.Log($"Mine: hitPoint={hit.point}, normal={hit.normal}, cell={cell}, tile={(tile ? tile.name : "null")}");
 
         if (tile == null) return;
 
-        targetTilemap.SetTile(cell, null);
-        targetTilemap.RefreshTile(cell);
-
-        Debug.Log($"Mine final cell={cell}, tile={(tile ? tile.name : "null")}");
-
-        if (tile == null) return;
-
-        targetTilemap.SetTile(cell, null);
-        targetTilemap.RefreshTile(cell);
+        tm.SetTile(cell, null);
+        tm.RefreshTile(cell);
     }
 
 

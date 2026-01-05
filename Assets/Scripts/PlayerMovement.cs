@@ -129,6 +129,9 @@ public class PlayerMovement : BaseBehaviour
 
         Gizmos.DrawWireSphere(origin + (Vector3)(dir * range), 0.08f);
     }
+    
+    // 이동을 연속적으로 할 것인지 한턴에 한번만 할 것인지
+    // 이동하며 타겟 방향의 땅을 지울 텐데 땅을 지우는 에임은 마우스로 할 것인가 키보드로 할 것인가?
 
     protected override void OnBindField()
     {
