@@ -2,30 +2,39 @@ using UnityEngine;
 
 public class PickaxeHitbox : MonoBehaviour
 {
-    Pickaxe owner;   //  곡괭이 본체
+    Pickaxe owner;
 
     void Awake()
     {
-        // 부모 오브젝트에서 Pickaxe 가져오기
         owner = GetComponentInParent<Pickaxe>();
-
         if (owner == null)
-        {
-            Debug.LogError("Pickaxe component not found");
-        }
+            Debug.LogError("PickaxeHitbox: Pickaxe not found in parent");
     }
 
     void OnTriggerEnter2D(Collider2D other)
     {
+        if (owner == null) return;
+
         IMineable mineable = other.GetComponent<IMineable>();
+        if (mineable == null) return;
 
         if (mineable != null && owner != null)
         {
-            // 실제 충돌 지점 계산
-            Vector2 hitPoint = other.ClosestPoint(transform.position);
+            var controller = GetComponentInParent<MiningController>();
+            if (controller != null) controller.NotifyHitThisSwing();
 
-            
-            mineable.TakeHit(owner.power, hitPoint);
+            Vector2 hitPoint = other.ClosestPoint(transform.position);
+            mineable.TakeHit(owner.Power, hitPoint);
         }
+
+       
     }
 }
+
+
+/*필수 구조
+ * Pickaxe
+ └─ Hitbox
+      ├─ BoxCollider2D (IsTrigger = ON)
+      └─ PickaxeHitbox 
+*/
