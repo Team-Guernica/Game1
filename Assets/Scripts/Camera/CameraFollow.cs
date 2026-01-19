@@ -1,31 +1,30 @@
 using System.Collections;
 using System.Collections.Generic;
+using UnityEditor;
 using UnityEngine;
+using static UnityEngine.GraphicsBuffer;
+
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 public class CameraFollow : BaseBehaviour
 {
 
     [Header("Follow Target")]
     [SerializeField] private Transform target;
-    [SerializeField] private Vector3 offset = new Vector3(0f, 0f, -10f);
-    [SerializeField] private float followSpeed = 8f;
     [SerializeField] private bool followX = true;
     [SerializeField] private bool followY = true;
+    [SerializeField] private float savedY;
 
-    [Header("Vertical Clamp")]
-    [SerializeField] private bool useVerticalClamp = false;
-    [SerializeField] private float minY = Mathf.NegativeInfinity;  // 카메라가 이 y보다 아래로는 못 내려감
-    [SerializeField] private float maxY = Mathf.Infinity;          // 필요하면 위쪽 한계도 설정 가능
+
+    private Coroutine lerpRoutine;
 
     protected override void Initialize()
     {
         base.Initialize();
-        if (target == null)
-        {
-            // 에디터에서 안 넣었으면 태그로라도 찾아보기
-            GameObject player = GameObject.FindGameObjectWithTag("Player");
-            if (player != null) target = player.transform;
-        }
+
+        savedY = transform.position.y;
     }
 
     private void LateUpdate()
@@ -33,73 +32,111 @@ public class CameraFollow : BaseBehaviour
         if (target == null) return;
 
         Vector3 currentPos = transform.position;
-        Vector3 targetPos = target.position + offset;
+        Vector3 targetPos = target.position;
 
-        // X, Y 각각 따라갈지 여부
-        float newX = followX ? targetPos.x : currentPos.x;
-        float newY = followY ? targetPos.y : currentPos.y;
+        float newX = currentPos.x;
+        float newY = currentPos.y;
 
-        // 수직 클램프 적용 (예: 땅 깊이 한계)
-        if (useVerticalClamp)
+        if (followY)
         {
-            newY = Mathf.Clamp(newY, minY, maxY);
+            newY = targetPos.y;
+            savedY = newY;
+        }
+        else
+        {
+            newY = savedY;
         }
 
-        Vector3 desired = new Vector3(newX, newY, targetPos.z);
-
-        // 부드럽게 따라가기
-        Vector3 smoothed = Vector3.Lerp(currentPos, desired, followSpeed * Time.deltaTime);
-        transform.position = smoothed;
+        Vector3 desiredPos = new Vector3(newX, newY, -10);
+        transform.position = desiredPos;
     }
 
-    /// <summary>
-    /// 카메라의 수직 이동 한계를 설정 (예: 게이트 통과 시)
-    /// </summary>
-    public void SetVerticalClamp(float min, float max)
+    public void SetFollowYTrue() => followY = true;
+    public void SetFollowYFalse() => followY = false;
+
+    public void SmoothMoveY(float startY, float duration = 0.5f)
     {
-        useVerticalClamp = true;
-        minY = min;
-        maxY = max;
+        if (target == null)
+        {
+            Debug.LogWarning("[CameraFollow] SmoothMoveY 호출했는데 target 이 없습니다.");
+            return;
+        }
+
+        if (lerpRoutine != null)
+        {
+            StopCoroutine(lerpRoutine);
+        }
+
+        lerpRoutine = StartCoroutine(LerpYRoutine(startY, duration));
     }
 
-    /// <summary>
-    /// 카메라 수직 한계 해제
-    /// </summary>
-    public void ClearVerticalClamp()
-    {
-        useVerticalClamp = false;
-        minY = Mathf.NegativeInfinity;
-        maxY = Mathf.Infinity;
-    }
-
-    public void FreezeYAtCurrent()
+    private IEnumerator LerpYRoutine(float startY, float duration)
     {
         followY = false;
 
-        // 현재 카메라 위치와 target 사이 Y 오프셋을 재계산해서 고정
-        if (target != null)
-        {
-            float currentY = transform.position.y;
-            float targetY = target.position.y;
+        float time = 0f;
+        float endY = target.position.y;
 
-            // offset.y는 target 기준이므로 이렇게 바꿔주면 이후 y는 고정됨
-            offset.y = currentY - targetY;
+        // 시작값을 먼저 savedY에 세팅
+        savedY = startY;
+
+        while (time < duration)
+        {
+            time += Time.deltaTime;
+            float t = Mathf.Clamp01(time / duration);
+
+            // ★ transform.position 대신 savedY만 갱신
+            savedY = Mathf.Lerp(startY, endY, t);
+
+            // LateUpdate가 savedY를 써서 실제 카메라 위치를 움직임
+            yield return null;
         }
+
+        savedY = endY;
+        followY = true;
+        lerpRoutine = null;
     }
+}
 
 #if UNITY_EDITOR
-    private void OnDrawGizmosSelected()
+[CustomEditor(typeof(CameraFollow))]
+public class CameraFollowEditor : Editor
+{
+    // 디버그용 입력값 (에디터 전용)
+    private float debugStartY = -5f;
+    private float debugDuration = 0.5f;
+
+    public override void OnInspectorGUI()
     {
-        if (!useVerticalClamp) return;
 
-        Gizmos.color = Color.green;
+        // 기본 인스펙터 먼저 그리기
+        base.OnInspectorGUI();
 
-        // 뷰 안에서 보이도록 대략적인 선 그리기
-        float lineLength = 20f;
-        Vector3 left = new Vector3(transform.position.x - lineLength, minY, 0f);
-        Vector3 right = new Vector3(transform.position.x + lineLength, minY, 0f);
-        Gizmos.DrawLine(left, right);
+        CameraFollow cam = (CameraFollow)target;
+
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("Debug Controls", EditorStyles.boldLabel);
+
+        // Play 모드 여부 안내
+        if (!Application.isPlaying)
+        {
+            EditorGUILayout.HelpBox("Play 모드에서만 디버그 버튼이 동작합니다.", MessageType.Info);
+            return;
+        }
+
+        // 디버그용 StartY, Duration 입력
+        debugStartY = EditorGUILayout.FloatField("Debug Start Y", debugStartY);
+        debugDuration = EditorGUILayout.FloatField("Debug Duration", debugDuration);
+
+        if (GUILayout.Button($"SmoothMoveY (StartY = {debugStartY}, dur = {debugDuration})"))
+        {
+            cam.SmoothMoveY(debugStartY, debugDuration);
+        }
+
+        if (GUILayout.Button($"SmoothMoveY (CurrentY → PlayerY, dur = {debugDuration})"))
+        {
+            cam.SmoothMoveY(cam.transform.position.y, debugDuration);
+        }
     }
-#endif
-
 }
+#endif
