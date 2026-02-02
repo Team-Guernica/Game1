@@ -3,31 +3,40 @@ using UnityEngine;
 public class PickaxeHitbox : MonoBehaviour
 {
     Pickaxe owner;
+    MineableObject currentTarget;
 
     void Awake()
     {
         owner = GetComponentInParent<Pickaxe>();
-        if (owner == null)
-            Debug.LogError("PickaxeHitbox: Pickaxe not found in parent");
     }
 
-    void OnTriggerEnter2D(Collider2D other)
+    void OnTriggerStay2D(Collider2D other)
     {
-        if (owner == null) return;
-
-        IMineable mineable = other.GetComponent<IMineable>();
+        MineableObject mineable = other.GetComponent<MineableObject>();
         if (mineable == null) return;
 
-        if (mineable != null && owner != null)
+        currentTarget = mineable;
+        Vector2 hitPoint = other.ClosestPoint(transform.position);
+        mineable.TakeHit(owner.Power, hitPoint);
+    }
+
+    void OnTriggerExit2D(Collider2D other)
+    {
+        MineableObject mineable = other.GetComponent<MineableObject>();
+        if (mineable == currentTarget)
         {
-            var controller = GetComponentInParent<MiningController>();
-            if (controller != null) controller.NotifyHitThisSwing();
-
-            Vector2 hitPoint = other.ClosestPoint(transform.position);
-            mineable.TakeHit(owner.Power, hitPoint);
+            mineable.ResetMining();
+            currentTarget = null;
         }
+    }
 
-       
+    public void ForceReset()
+    {
+        if (currentTarget != null)
+        {
+            currentTarget.ResetMining();
+            currentTarget = null;
+        }
     }
 }
 
