@@ -11,13 +11,18 @@ public class TradeUIManager : BaseBehaviour
     [Header("UI Roots")]
     [SerializeField] private GameObject tradePanel;
 
-    [Header("Debug Data")]
-    public InventoryData playerInventory = new InventoryData();
     public TradeRecipe currentNpcRecipe = new TradeRecipe();
 
     [Header("Offer Slot (1)")]
     [SerializeField] private ItemId offerItemId = ItemId.WhiteDebris;
     [SerializeField] private int offerAmount = 0;
+
+    [Header("UI Binding")]
+    [SerializeField] private TempInventorySlot[] inventorySlots; // 인벤 UI 슬롯들
+    [SerializeField] private TempInventorySlot[] requireSlots;   // 요구 UI 슬롯들 (레시피 requires 표시)
+    [SerializeField] private TempInventorySlot[] rewardSlots;    // 보상 UI 슬롯들 (레시피 rewards 표시)
+    [SerializeField] private TempInventorySlot offerSlotUI;
+    [SerializeField] private ItemIconTable iconTable;            // 아이콘 매핑
 
     // 커스텀 에디터 읽기용
     public ItemId DebugOfferItemId => offerItemId;
@@ -27,7 +32,7 @@ public class TradeUIManager : BaseBehaviour
     private List<TradeRecipe> recipePool = new List<TradeRecipe>();
 
     // 커스텀 에디터에서 읽기용
-    public InventoryData DebugInventory => playerInventory;
+    public InventoryData DebugInventory => InventoryManager.Instance != null ? InventoryManager.Instance.Data : null;
     public TradeRecipe DebugCurrentRecipe => currentNpcRecipe;
 
     protected override void Initialize()
@@ -52,12 +57,14 @@ public class TradeUIManager : BaseBehaviour
     {
         tradePanel.SetActive(true);
         Cursor.visible = true;
+        RefreshAllUI();
     }
 
     public void CloseTradeUI()
     {
         tradePanel.SetActive(false);
         Cursor.visible = false;
+        RefreshAllUI();
     }
 
     // Update is called once per frame
@@ -79,20 +86,23 @@ public class TradeUIManager : BaseBehaviour
     /// </summary>
     public void DebugFillInventoryAllTypes()
     {
-        playerInventory.Clear();
+        if (InventoryManager.Instance == null)
+        {
+            Debug.LogWarning("[TradeUI] InventoryManager.Instance 없음");
+            return;
+        }
+
+        var inv = InventoryManager.Instance.Data;
+        inv.Clear();
 
         foreach (ItemId id in System.Enum.GetValues(typeof(ItemId)))
         {
-            // 기본 재료 3종은 넉넉하게
             int amt = Random.Range(5, 31);
 
-            // 교역 산출물/뱃지는 적게
             if (id is ItemId.Water or ItemId.Armor or ItemId.RedJuice or ItemId.Badge)
-            {
                 amt = Random.Range(0, 4);
-            }
 
-            playerInventory.Set(id, amt);
+            inv.Set(id, amt);
         }
 
         Debug.Log("[TradeUI] 인벤토리 더미 생성 완료");
@@ -111,6 +121,7 @@ public class TradeUIManager : BaseBehaviour
 
         currentNpcRecipe = recipePool[Random.Range(0, recipePool.Count)];
         Debug.Log($"[TradeUI] NPC 레시피 선택: {currentNpcRecipe.recipeName}");
+        RefreshAllUI();
     }
 
     /// <summary>
@@ -118,23 +129,31 @@ public class TradeUIManager : BaseBehaviour
     /// </summary>
     public void DebugTradeOnce()
     {
+        if (InventoryManager.Instance == null)
+        {
+            Debug.LogWarning("[TradeUI] InventoryManager.Instance 없음");
+            return;
+        }
+
+        var inv = InventoryManager.Instance.Data;
+
         if (currentNpcRecipe == null)
         {
             Debug.LogWarning("[TradeUI] currentNpcRecipe 없음");
             return;
         }
 
-        if (!playerInventory.HasAll(currentNpcRecipe.requires, out string reason))
+        if (!inv.HasAll(currentNpcRecipe.requires, out string reason))
         {
             Debug.LogWarning($"[TradeUI] 교역 실패: {reason}");
             return;
         }
 
-        // 차감 → 지급
-        playerInventory.ConsumeAll(currentNpcRecipe.requires);
-        playerInventory.AddAll(currentNpcRecipe.rewards);
+        inv.ConsumeAll(currentNpcRecipe.requires);
+        inv.AddAll(currentNpcRecipe.rewards);
 
         Debug.Log($"[TradeUI] 교역 성공: {currentNpcRecipe.recipeName}");
+        RefreshAllUI();
     }
 
     // =========================================================
@@ -172,22 +191,30 @@ public class TradeUIManager : BaseBehaviour
     {
         offerItemId = id;
         offerAmount = Mathf.Max(0, amount);
+        RefreshAllUI();
     }
 
     public void DebugClearOffer()
     {
         offerAmount = 0;
+        RefreshAllUI();
     }
 
     public void DebugTradeUsingOfferSlot()
     {
+        if (InventoryManager.Instance == null)
+        {
+            Debug.LogWarning("[TradeUI] InventoryManager.Instance 없음");
+            return;
+        }
+        var inv = InventoryManager.Instance.Data;
+
         if (currentNpcRecipe == null)
         {
             Debug.LogWarning("[TradeUI] currentNpcRecipe 없음");
             return;
         }
 
-        // 레시피 요구 조건은 “1개 아이템만 요구한다”로 단순화
         if (currentNpcRecipe.requires == null || currentNpcRecipe.requires.Count == 0)
         {
             Debug.LogWarning("[TradeUI] 레시피 requires 비어있음");
@@ -202,38 +229,141 @@ public class TradeUIManager : BaseBehaviour
 
         ItemStack req = currentNpcRecipe.requires[0];
 
-        // 1) 오퍼 슬롯이 요구 아이템과 같은지
         if (offerItemId != req.itemId)
         {
             Debug.LogWarning($"[TradeUI] 교역 실패: 올려둔 아이템 불일치 (올림 {ItemName.ToKorean(offerItemId)} / 요구 {ItemName.ToKorean(req.itemId)})");
             return;
         }
 
-        // 2) 오퍼 수량이 요구 수량 이상인지
         if (offerAmount < req.amount)
         {
             Debug.LogWarning($"[TradeUI] 교역 실패: 올려둔 수량 부족 (올림 {offerAmount} / 요구 {req.amount})");
             return;
         }
 
-        // 3) 실제 인벤에 요구 수량이 있는지
-        if (!playerInventory.Has(req.itemId, req.amount))
+        if (!inv.Has(req.itemId, req.amount))
         {
-            Debug.LogWarning($"[TradeUI] 교역 실패: 인벤 부족 (보유 {playerInventory.Get(req.itemId)} / 요구 {req.amount})");
+            Debug.LogWarning($"[TradeUI] 교역 실패: 인벤 부족 (보유 {inv.Get(req.itemId)} / 요구 {req.amount})");
             return;
         }
 
-        // 4) 인벤 차감 + 보상 지급
-        playerInventory.Add(req.itemId, -req.amount);
-        playerInventory.AddAll(currentNpcRecipe.rewards);
+        inv.Add(req.itemId, -req.amount);
+        inv.AddAll(currentNpcRecipe.rewards);
 
         Debug.Log($"[TradeUI] 교역 성공(Offer 1): {currentNpcRecipe.recipeName}");
 
-        // 성공하면 오퍼 슬롯 비우기(원하면 유지하도록 주석)
         DebugClearOffer();
+        RefreshAllUI();
+    }
+    public void SetNpcRecipe(TradeRecipe recipe)
+    {
+        currentNpcRecipe = recipe;
+        RefreshAllUI();
+    }
+
+    public void RefreshAllUI()
+    {
+        RefreshInventoryUI();
+        RefreshRecipeUI();
+        RefreshOfferUI();
+    }
+
+    private void RefreshInventoryUI()
+    {
+        if (inventorySlots == null || inventorySlots.Length == 0) return;
+        if (InventoryManager.Instance == null) return;
+
+        var inv = InventoryManager.Instance.Data;
+
+        // 슬롯 i번째에 enum i번째 아이템을 고정 배치(간단한 임시 방식)
+        var ids = (ItemId[])System.Enum.GetValues(typeof(ItemId));
+
+        for (int i = 0; i < inventorySlots.Length; i++)
+        {
+            var slot = inventorySlots[i];
+            if (slot == null) continue;
+
+            if (i >= ids.Length)
+            {
+                slot.Clear();
+                continue;
+            }
+
+            ItemId id = ids[i];
+            int amt = inv.Get(id);
+            Sprite icon = iconTable != null ? iconTable.GetIcon(id) : null;
+
+            slot.Set(id, amt, icon);
+        }
+    }
+
+    private void RefreshRecipeUI()
+    {
+        if (currentNpcRecipe == null) return;
+
+        // 요구
+        if (requireSlots != null)
+        {
+            for (int i = 0; i < requireSlots.Length; i++)
+            {
+                var slot = requireSlots[i];
+                if (slot == null) continue;
+
+                if (currentNpcRecipe.requires == null || i >= currentNpcRecipe.requires.Count)
+                {
+                    slot.Clear();
+                    continue;
+                }
+
+                var r = currentNpcRecipe.requires[i];
+                Sprite icon = iconTable != null ? iconTable.GetIcon(r.itemId) : null;
+                slot.Set(r.itemId, r.amount, icon);
+            }
+        }
+
+        // 보상
+        if (rewardSlots != null)
+        {
+            for (int i = 0; i < rewardSlots.Length; i++)
+            {
+                var slot = rewardSlots[i];
+                if (slot == null) continue;
+
+                if (currentNpcRecipe.rewards == null || i >= currentNpcRecipe.rewards.Count)
+                {
+                    slot.Clear();
+                    continue;
+                }
+
+                var r = currentNpcRecipe.rewards[i];
+                Sprite icon = iconTable != null ? iconTable.GetIcon(r.itemId) : null;
+                slot.Set(r.itemId, r.amount, icon);
+            }
+        }
+    }
+    private void RefreshOfferUI()
+    {
+        if (offerSlotUI == null) return;
+
+        // offerAmount == 0 이면 빈칸으로 보이게
+        if (offerAmount <= 0)
+        {
+            offerSlotUI.Clear();
+            return;
+        }
+
+        Sprite icon = iconTable != null ? iconTable.GetIcon(offerItemId) : null;
+        offerSlotUI.Set(offerItemId, offerAmount, icon);
+    }
+
+    public void OnClickTradeButton()
+    {
+        DebugTradeUsingOfferSlot();
+        RefreshAllUI();
     }
 
 }
+
 
 #if UNITY_EDITOR
 [CustomEditor(typeof(TradeUIManager))]

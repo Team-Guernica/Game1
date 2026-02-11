@@ -1,22 +1,25 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 public class TradeNPC : MonoBehaviour
 {
-    // Start is called before the first frame update
-    void Start()
-    {
-        
-    }
+    [Header("NPC Recipe")]
+    [SerializeField] private TradeRecipe npcRecipe;
 
-    // Update is called once per frame
-    void Update()
-    {
-        
-    }
     private void OnMouseDown()
     {
+        if (TradeUIManager.Instance == null)
+        {
+            Debug.LogWarning("[TradeNPC] TradeUIManager.Instance 없음");
+            return;
+        }
+
+        if (npcRecipe == null)
+        {
+            Debug.LogWarning("[TradeNPC] npcRecipe 없음");
+            return;
+        }
+
+        TradeUIManager.Instance.SetNpcRecipe(npcRecipe);
         TradeUIManager.Instance.OpenTradeUI();
     }
 }
