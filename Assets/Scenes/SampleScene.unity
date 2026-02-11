@@ -6975,15 +6975,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e781a2a0277aeae48bb823187aa10ffe, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  cam: {fileID: 0}
-  origin: {fileID: 0}
-  pickaxe: {fileID: 0}
-  hitboxObject: {fileID: 0}
-  mineableMask:
-    serializedVersion: 2
-    m_Bits: 0
-  hitboxRange: 1
-  hitboxActiveTime: 0.12
+  cam: {fileID: 519420031}
+  origin: {fileID: 1900040871}
+  pickaxe: {fileID: 4148291417564135563, guid: 9eb5a6c27729bde4d946cd98074eb404, type: 3}
+  hitboxes: []
 --- !u!1001 &1918119892
 PrefabInstance:
   m_ObjectHideFlags: 0
