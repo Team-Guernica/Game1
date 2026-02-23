@@ -82,7 +82,7 @@ public class TradeUIManager : BaseBehaviour
     }
 
     /// <summary>
-    /// 모든 아이템을 인벤토리에 넣고 랜덤 수량 부여
+    /// 16개 슬롯을 채우도록 랜덤 인벤토리 생성
     /// </summary>
     public void DebugFillInventoryAllTypes()
     {
@@ -95,17 +95,38 @@ public class TradeUIManager : BaseBehaviour
         var inv = InventoryManager.Instance.Data;
         inv.Clear();
 
+        // 아이템 종류 목록
+        List<ItemId> itemTypes = new List<ItemId>();
         foreach (ItemId id in System.Enum.GetValues(typeof(ItemId)))
         {
-            int amt = Random.Range(5, 31);
-
-            if (id is ItemId.Water or ItemId.Armor or ItemId.RedJuice or ItemId.Badge)
-                amt = Random.Range(0, 4);
-
-            inv.Set(id, amt);
+            itemTypes.Add(id);
         }
 
-        Debug.Log("[TradeUI] 인벤토리 더미 생성 완료");
+        // 16개 슬롯을 채우기 위해 아이템을 반복하여 추가
+        int slotsToFill = Mathf.Min(16, inventorySlots != null ? inventorySlots.Length : 16);
+        
+        for (int i = 0; i < slotsToFill; i++)
+        {
+            // 아이템 종류를 순환하면서 선택 (다양성을 위해)
+            ItemId id = itemTypes[i % itemTypes.Count];
+            
+            // 랜덤 수량 생성
+            int amt;
+            if (id is ItemId.Water or ItemId.Armor or ItemId.RedJuice or ItemId.Badge)
+            {
+                amt = Random.Range(1, 5); // 희귀 아이템: 1~4개
+            }
+            else
+            {
+                amt = Random.Range(3, 21); // 일반 아이템: 3~20개
+            }
+            
+            // 인벤토리에 추가
+            inv.Add(id, amt);
+        }
+
+        Debug.Log($"[TradeUI] 인벤토리 더미 생성 완료 ({slotsToFill}개 슬롯 채움)");
+        RefreshAllUI();
     }
 
     /// <summary>
@@ -196,7 +217,8 @@ public class TradeUIManager : BaseBehaviour
 
     public void DebugClearOffer()
     {
-        offerAmount = 0;
+        // 오퍼 슬롯의 아이템을 인벤토리로 반환
+        ReturnOfferToInventory();
         RefreshAllUI();
     }
 
@@ -241,18 +263,16 @@ public class TradeUIManager : BaseBehaviour
             return;
         }
 
-        if (!inv.Has(req.itemId, req.amount))
-        {
-            Debug.LogWarning($"[TradeUI] 교역 실패: 인벤 부족 (보유 {inv.Get(req.itemId)} / 요구 {req.amount})");
-            return;
-        }
-
-        inv.Add(req.itemId, -req.amount);
+        // 오퍼 슬롯에 있는 아이템은 이미 인벤토리에서 차감됨
+        // 보상만 지급
         inv.AddAll(currentNpcRecipe.rewards);
 
         Debug.Log($"[TradeUI] 교역 성공(Offer 1): {currentNpcRecipe.recipeName}");
 
-        DebugClearOffer();
+        // 오퍼 슬롯 초기화 (인벤토리 복구 없이)
+        offerItemId = ItemId.WhiteDebris;
+        offerAmount = 0;
+        
         RefreshAllUI();
     }
     public void SetNpcRecipe(TradeRecipe recipe)
@@ -268,32 +288,36 @@ public class TradeUIManager : BaseBehaviour
         RefreshOfferUI();
     }
 
+    /// <summary>
+    /// 인벤토리 UI 갱신 (최대 16개 슬롯 지원)
+    /// 같은 아이템이 여러 슬롯에 나뉘어 표시될 수 있음
+    /// </summary>
     private void RefreshInventoryUI()
     {
         if (inventorySlots == null || inventorySlots.Length == 0) return;
         if (InventoryManager.Instance == null) return;
 
         var inv = InventoryManager.Instance.Data;
+        var items = inv.Items;
 
-        // 슬롯 i번째에 enum i번째 아이템을 고정 배치(간단한 임시 방식)
-        var ids = (ItemId[])System.Enum.GetValues(typeof(ItemId));
-
+        // 모든 슬롯을 인벤토리 데이터로 채움 (최대 16개)
         for (int i = 0; i < inventorySlots.Length; i++)
         {
             var slot = inventorySlots[i];
             if (slot == null) continue;
 
-            if (i >= ids.Length)
+            if (items != null && i < items.Count)
             {
-                slot.Clear();
-                continue;
+                // 인벤토리에 있는 아이템 표시
+                var itemStack = items[i];
+                Sprite icon = iconTable != null ? iconTable.GetIcon(itemStack.itemId) : null;
+                slot.Set(itemStack.itemId, itemStack.amount, icon);
             }
-
-            ItemId id = ids[i];
-            int amt = inv.Get(id);
-            Sprite icon = iconTable != null ? iconTable.GetIcon(id) : null;
-
-            slot.Set(id, amt, icon);
+            else
+            {
+                // 빈 슬롯
+                slot.Clear();
+            }
         }
     }
 
@@ -308,6 +332,9 @@ public class TradeUIManager : BaseBehaviour
             {
                 var slot = requireSlots[i];
                 if (slot == null) continue;
+
+                // 레시피 슬롯은 드래그 불가능하게 설정
+                slot.SetDraggable(false);
 
                 if (currentNpcRecipe.requires == null || i >= currentNpcRecipe.requires.Count)
                 {
@@ -328,6 +355,9 @@ public class TradeUIManager : BaseBehaviour
             {
                 var slot = rewardSlots[i];
                 if (slot == null) continue;
+
+                // 레시피 슬롯은 드래그 불가능하게 설정
+                slot.SetDraggable(false);
 
                 if (currentNpcRecipe.rewards == null || i >= currentNpcRecipe.rewards.Count)
                 {
@@ -362,6 +392,290 @@ public class TradeUIManager : BaseBehaviour
         RefreshAllUI();
     }
 
+    /// <summary>
+    /// 인벤토리에서 아이템을 오퍼 슬롯에 추가
+    /// </summary>
+    public void AddToOfferSlot(ItemId itemId, int amount)
+    {
+        if (InventoryManager.Instance == null) return;
+        var inv = InventoryManager.Instance.Data;
+
+        int availableAmount = inv.Get(itemId);
+        if (availableAmount <= 0)
+        {
+            Debug.LogWarning($"[TradeUI] 인벤토리에 {ItemName.ToKorean(itemId)}이(가) 없습니다.");
+            return;
+        }
+
+        if (offerAmount == 0)
+        {
+            offerItemId = itemId;
+        }
+        else if (offerItemId != itemId)
+        {
+            Debug.LogWarning("[TradeUI] 오퍼 슬롯에는 같은 종류의 아이템만 올릴 수 있습니다.");
+            return;
+        }
+
+        int amountToAdd = Mathf.Min(amount, availableAmount - offerAmount);
+        if (amountToAdd <= 0)
+        {
+            Debug.LogWarning("[TradeUI] 더 이상 올릴 수 없습니다.");
+            return;
+        }
+
+        offerAmount += amountToAdd;
+        Debug.Log($"[TradeUI] {ItemName.ToKorean(itemId)} x{amountToAdd} 오퍼 슬롯에 추가");
+        RefreshAllUI();
+    }
+
+    /// <summary>
+    /// 오퍼 슬롯에서 아이템 제거
+    /// </summary>
+    public void RemoveFromOfferSlot(int amount)
+    {
+        if (offerAmount <= 0) return;
+
+        int amountToRemove = Mathf.Min(amount, offerAmount);
+        offerAmount -= amountToRemove;
+
+        if (offerAmount <= 0)
+        {
+            offerAmount = 0;
+            Debug.Log("[TradeUI] 오퍼 슬롯 비움");
+        }
+        else
+        {
+            Debug.Log($"[TradeUI] {ItemName.ToKorean(offerItemId)} x{amountToRemove} 제거");
+        }
+
+        RefreshAllUI();
+    }
+
+    /// <summary>
+    /// 슬롯 타입 확인 (인벤토리 슬롯인지, 오퍼 슬롯인지)
+    /// </summary>
+    public bool IsInventorySlot(TempInventorySlot slot)
+    {
+        if (inventorySlots == null || slot == null) return false;
+        for (int i = 0; i < inventorySlots.Length; i++)
+        {
+            if (inventorySlots[i] == slot) return true;
+        }
+        return false;
+    }
+
+    public bool IsOfferSlot(TempInventorySlot slot)
+    {
+        return slot != null && slot == offerSlotUI;
+    }
+
+    /// <summary>
+    /// 드래그 앤 드롭으로 슬롯 간 이동 처리
+    /// </summary>
+    public void HandleSlotSwap(TempInventorySlot fromSlot, TempInventorySlot toSlot)
+    {
+        if (fromSlot == null || toSlot == null || fromSlot == toSlot) return;
+
+        bool fromIsInventory = IsInventorySlot(fromSlot);
+        bool fromIsOffer = IsOfferSlot(fromSlot);
+        bool fromIsRecipe = IsRecipeSlot(fromSlot);
+        
+        bool toIsInventory = IsInventorySlot(toSlot);
+        bool toIsOffer = IsOfferSlot(toSlot);
+        bool toIsRecipe = IsRecipeSlot(toSlot);
+
+        // 레시피 슬롯은 드래그 불가
+        if (fromIsRecipe)
+        {
+            Debug.LogWarning("[TradeUI] 레시피 슬롯에서는 드래그할 수 없습니다.");
+            return;
+        }
+
+        // 레시피 슬롯으로는 드롭 불가
+        if (toIsRecipe)
+        {
+            Debug.LogWarning("[TradeUI] 레시피 슬롯으로는 드롭할 수 없습니다.");
+            return;
+        }
+
+        // 인벤토리 → 인벤토리 (스왑)
+        if (fromIsInventory && toIsInventory)
+        {
+            SwapInventorySlots(fromSlot, toSlot);
+            RefreshAllUI();
+            return;
+        }
+
+        // 인벤토리 → 오퍼 슬롯
+        if (fromIsInventory && toIsOffer)
+        {
+            if (!fromSlot.HasItem()) return;
+
+            // 레시피 검증 및 요구 수량 확인
+            if (!TryMoveToOfferSlot(fromSlot.ItemId))
+            {
+                return;
+            }
+
+            RefreshAllUI();
+        }
+        // 오퍼 슬롯 → 인벤토리
+        else if (fromIsOffer && toIsInventory)
+        {
+            if (offerAmount > 0)
+            {
+                ReturnOfferToInventory();
+                RefreshAllUI();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 레시피 슬롯인지 확인 (요구 또는 보상 슬롯)
+    /// </summary>
+    private bool IsRecipeSlot(TempInventorySlot slot)
+    {
+        if (slot == null) return false;
+
+        // 요구 슬롯 확인
+        if (requireSlots != null)
+        {
+            for (int i = 0; i < requireSlots.Length; i++)
+            {
+                if (requireSlots[i] == slot) return true;
+            }
+        }
+
+        // 보상 슬롯 확인
+        if (rewardSlots != null)
+        {
+            for (int i = 0; i < rewardSlots.Length; i++)
+            {
+                if (rewardSlots[i] == slot) return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 인벤토리 슬롯 간 아이템 스왑
+    /// </summary>
+    private void SwapInventorySlots(TempInventorySlot slotA, TempInventorySlot slotB)
+    {
+        // UI 레벨에서만 스왑 (슬롯 데이터 교환)
+        slotA.SwapWith(slotB);
+        
+        Debug.Log($"[TradeUI] 슬롯 스왑 완료");
+    }
+
+    /// <summary>
+    /// 슬롯의 인벤토리 인덱스 찾기
+    /// </summary>
+    private int GetInventorySlotIndex(TempInventorySlot slot)
+    {
+        if (inventorySlots == null || slot == null) return -1;
+
+        for (int i = 0; i < inventorySlots.Length; i++)
+        {
+            if (inventorySlots[i] == slot)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// 인벤토리에서 오퍼 슬롯으로 아이템 이동 시도
+    /// </summary>
+    private bool TryMoveToOfferSlot(ItemId itemId)
+    {
+        if (InventoryManager.Instance == null)
+        {
+            Debug.LogWarning("[TradeUI] InventoryManager.Instance 없음");
+            return false;
+        }
+
+        var inv = InventoryManager.Instance.Data;
+
+        // 현재 레시피 확인
+        if (currentNpcRecipe == null)
+        {
+            Debug.LogWarning("[TradeUI] 현재 레시피가 없습니다.");
+            return false;
+        }
+
+        if (currentNpcRecipe.requires == null || currentNpcRecipe.requires.Count == 0)
+        {
+            Debug.LogWarning("[TradeUI] 레시피 요구사항이 비어있습니다.");
+            return false;
+        }
+
+        // 단일 요구사항 레시피만 지원
+        if (currentNpcRecipe.requires.Count != 1)
+        {
+            Debug.LogWarning("[TradeUI] 오퍼 슬롯은 요구사항이 1개인 레시피만 지원합니다.");
+            return false;
+        }
+
+        ItemStack requiredItem = currentNpcRecipe.requires[0];
+
+        // 레시피가 요구하는 아이템이 아닌 경우
+        if (itemId != requiredItem.itemId)
+        {
+            Debug.LogWarning($"[TradeUI] 이 레시피는 {ItemName.ToKorean(requiredItem.itemId)}을(를) 요구합니다. (시도한 아이템: {ItemName.ToKorean(itemId)})");
+            return false;
+        }
+
+        // 이미 오퍼 슬롯에 있는 경우
+        if (offerAmount > 0)
+        {
+            Debug.LogWarning($"[TradeUI] 이미 오퍼 슬롯에 아이템이 있습니다. 먼저 제거해주세요.");
+            return false;
+        }
+
+        // 인벤토리에 충분한 수량이 있는지 확인
+        int availableAmount = inv.Get(itemId);
+        int requiredAmount = requiredItem.amount;
+
+        if (availableAmount < requiredAmount)
+        {
+            Debug.LogWarning($"[TradeUI] {ItemName.ToKorean(itemId)} 부족 (보유: {availableAmount} / 필요: {requiredAmount})");
+            return false;
+        }
+
+        // 인벤토리에서 차감하고 오퍼 슬롯에 추가
+        inv.Add(itemId, -requiredAmount);
+        offerItemId = itemId;
+        offerAmount = requiredAmount;
+
+        Debug.Log($"[TradeUI] {ItemName.ToKorean(itemId)} x{requiredAmount}를 오퍼 슬롯에 올렸습니다.");
+
+        return true;
+    }
+
+    /// <summary>
+    /// 오퍼 슬롯의 아이템을 인벤토리로 반환
+    /// </summary>
+    private void ReturnOfferToInventory()
+    {
+        if (offerAmount <= 0) return;
+        if (InventoryManager.Instance == null) return;
+
+        var inv = InventoryManager.Instance.Data;
+
+        // 인벤토리에 아이템 복구
+        inv.Add(offerItemId, offerAmount);
+
+        Debug.Log($"[TradeUI] {ItemName.ToKorean(offerItemId)} x{offerAmount}를 인벤토리로 반환했습니다.");
+
+        // 오퍼 슬롯 초기화
+        offerItemId = ItemId.WhiteDebris;
+        offerAmount = 0;
+    }
 }
 
 

@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using System.Collections.Generic;
 
 [RequireComponent(typeof(Image))]
 public class TempInventoryItemDrag : MonoBehaviour,
@@ -13,6 +14,7 @@ public class TempInventoryItemDrag : MonoBehaviour,
     private TempInventorySlot fromSlot;
     private Transform originalParent;
     private Vector2 originalAnchoredPos;
+    private bool isDragging = false;
 
     private void Awake()
     {
@@ -22,70 +24,109 @@ public class TempInventoryItemDrag : MonoBehaviour,
         rootCanvas = GetComponentInParent<Canvas>();
         if (rootCanvas == null)
         {
-            Debug.LogError("[TempInventoryItemDrag] Canvas를 찾지 못했음");
+            Debug.LogError("[TempInventoryItemDrag] Canvas를 찾을 수 없음");
         }
 
         fromSlot = GetComponentInParent<TempInventorySlot>();
         if (fromSlot == null)
         {
-            Debug.LogError("[TempInventoryItemDrag] 부모에 TempInventorySlot이 필요함");
+            Debug.LogError("[TempInventoryItemDrag] 부모 TempInventorySlot이 필요함");
         }
     }
 
     public void OnBeginDrag(PointerEventData eventData)
     {
-        if (fromSlot == null || !fromSlot.HasItem()) return;
+        Debug.Log($"[Drag] OnBeginDrag 시작");
+        
+        if (fromSlot == null || !fromSlot.HasItem())
+        {
+            Debug.LogWarning("[Drag] 슬롯이 없거나 아이템이 없음");
+            return;
+        }
 
+        // 드래그 불가능한 슬롯 체크
+        if (!fromSlot.IsDraggable)
+        {
+            Debug.LogWarning("[TempInventoryItemDrag] 이 슬롯은 드래그할 수 없습니다.");
+            return;
+        }
+
+        isDragging = true;
         originalParent = transform.parent;
         originalAnchoredPos = rect.anchoredPosition;
 
-        // 드래그 중에는 드롭 타겟을 막지 않게
         img.raycastTarget = false;
 
-        // 최상단으로 올려서 다른 UI 위로 보이게
         transform.SetParent(rootCanvas.transform, true);
+        
+        Debug.Log($"[Drag] 드래그 시작: {fromSlot.gameObject.name}");
     }
 
     public void OnDrag(PointerEventData eventData)
     {
-        if (fromSlot == null || !fromSlot.HasItem()) return;
+        if (!isDragging) return;
 
-        // 화면 좌표 따라가기
         rect.position = eventData.position;
     }
 
     public void OnEndDrag(PointerEventData eventData)
     {
-        if (fromSlot == null || !fromSlot.HasItem())
+        Debug.Log($"[Drag] OnEndDrag 시작, isDragging={isDragging}");
+        
+        if (!isDragging)
         {
-            // 원복
-            img.raycastTarget = true;
             return;
         }
 
-        // 드롭된 대상 아래에서 슬롯 찾기
         TempInventorySlot toSlot = null;
 
-        if (eventData.pointerEnter != null)
+        // Raycast를 사용하여 정확한 슬롯 찾기
+        PointerEventData pointerData = new PointerEventData(EventSystem.current)
         {
-            // 1) 바로 슬롯이 잡히는 경우
-            toSlot = eventData.pointerEnter.GetComponentInParent<TempInventorySlot>();
+            position = eventData.position
+        };
+
+        List<RaycastResult> results = new List<RaycastResult>();
+        EventSystem.current.RaycastAll(pointerData, results);
+
+        Debug.Log($"[Drag] Raycast 결과 수: {results.Count}");
+
+        foreach (var result in results)
+        {
+            Debug.Log($"[Drag] Hit: {result.gameObject.name}");
+            TempInventorySlot slot = result.gameObject.GetComponentInParent<TempInventorySlot>();
+            if (slot != null && slot != fromSlot)
+            {
+                toSlot = slot;
+                Debug.Log($"[Drag] 타겟 슬롯 찾음: {toSlot.gameObject.name}");
+                break;
+            }
         }
 
-        // 슬롯 위에 드롭했으면 스왑
-        if (toSlot != null && toSlot != fromSlot)
+        if (toSlot != null)
         {
-            fromSlot.SwapWith(toSlot);
+            Debug.Log($"[Drag] 슬롯 스왑 시도: {fromSlot.gameObject.name} → {toSlot.gameObject.name}");
+            if (TradeUIManager.Instance != null)
+            {
+                TradeUIManager.Instance.HandleSlotSwap(fromSlot, toSlot);
+            }
+            else
+            {
+                Debug.Log($"[Drag] TradeUIManager 없음, 직접 스왑");
+                fromSlot.SwapWith(toSlot);
+            }
+        }
+        else
+        {
+            Debug.LogWarning("[Drag] 타겟 슬롯을 찾지 못했습니다.");
         }
 
-        // 원래 위치로 복귀(스왑 여부와 관계없이 이미지 오브젝트는 항상 제자리)
         transform.SetParent(originalParent, true);
         rect.anchoredPosition = originalAnchoredPos;
 
-        // 레이캐스트 다시 켬
         img.raycastTarget = true;
+        isDragging = false;
 
-        // 슬롯 UI 갱신(혹시 모를 상태 보정)
         fromSlot.RefreshUI();
         if (toSlot != null) toSlot.RefreshUI();
     }

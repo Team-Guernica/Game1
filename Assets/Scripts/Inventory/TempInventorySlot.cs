@@ -13,9 +13,13 @@ public class TempInventorySlot : MonoBehaviour
     [SerializeField] private int amount;
     [SerializeField] private Sprite icon;
 
+    [Header("Slot Type")]
+    [SerializeField] private bool isDraggable = true; // 드래그 가능 여부
+
     public ItemId ItemId => itemId;
     public int Amount => amount;
     public Sprite Icon => icon;
+    public bool IsDraggable => isDraggable;
 
     private void Awake()
     {
@@ -28,6 +32,12 @@ public class TempInventorySlot : MonoBehaviour
 
         if (amountText == null)
             amountText = GetComponentInChildren<TMP_Text>(true);
+
+        // 수량 텍스트는 Raycast를 막지 않도록 설정
+        if (amountText != null)
+        {
+            amountText.raycastTarget = false;
+        }
 
         RefreshUI();
     }
@@ -78,5 +88,13 @@ public class TempInventorySlot : MonoBehaviour
 
         RefreshUI();
         other.RefreshUI();
+    }
+
+    /// <summary>
+    /// 레시피 슬롯을 드래그 불가능하게 설정
+    /// </summary>
+    public void SetDraggable(bool draggable)
+    {
+        isDraggable = draggable;
     }
 }
